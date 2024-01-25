@@ -1,7 +1,10 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Form, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 from app.classes.txt_document_loader import TxtDocumentLoader
+from utils.file_utils import save_file_async
 from app.classes.app_context import TxtAppContext
+
+import os
 
 app_context = TxtAppContext()
 
@@ -19,16 +22,20 @@ async def query_txt(query: str = Query(..., title="Query", description="Enter th
     return JSONResponse(content=response, status_code=200)
 
 @router.post("/upload_txt")
-#async def upload_txt(file: UploadFile = File(...)):
-async def upload_txt(file_path: str = Query(..., title="File Path", description="Path to the document file")):
-    if (file_path.lower() == "reset"):
-        app_context.chunked_documents = None
-        return JSONResponse(content= {"message" : "Reset completed successfully"}, status_code=200)
+async def upload_txt(file: UploadFile = File(...)):
+    # Check file format for basic validation
+    if not file.filename.endswith(('.txt')):
+        raise HTTPException(status_code=400, detail="Invalid file format, please upload a .txt file to process")
 
-    if not file_path.lower().endswith('.txt'):
-        file_extension = list(file_path.split('.'))[-1]
-        return JSONResponse(content = {"message" : f"Oops! you're trying to upload {file_extension}, we need .txt file to process"}, status_code=400)
-    app_context.document_loader = TxtDocumentLoader(file_path=file_path)
+    # Create the directory if it doesn't exist
+    storage_directory = "file_storage/txt_files"
+    os.makedirs(storage_directory, exist_ok=True)
+
+    # Save the file to a temporary file for processing
+    await save_file_async(file, storage_directory)
+
+    app_context.document_loader = TxtDocumentLoader(file_path=os.path.join(storage_directory, file.filename))
     app_context.loaded_document = app_context.document_loader.load_document()
     app_context.chunked_documents = app_context.document_loader.text_splitter(documents=app_context.loaded_document)
-    return JSONResponse(content= {"message" : "File uploaded successfully"}, status_code=200)
+
+    return JSONResponse(content={"message": "File uploaded successfully"}, status_code=200)
