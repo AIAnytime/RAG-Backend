@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Form, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
+from utils.file_utils import save_file_async
 from app.classes.pdf_document_loader import PdfDocumentLoader
 from app.classes.app_context import PdfAppContext
+import os
 
 pdf_app_context = PdfAppContext()
 
@@ -19,16 +21,20 @@ async def query_pdf(query: str = Query(..., title="Query", description="Enter th
     return JSONResponse(content=response, status_code=200)
 
 @router.post("/upload_pdf")
-#async def upload_txt(file: UploadFile = File(...)):
-async def upload_pdf(file_path: str = Query(..., title="File Path", description="Path to the document file")):
-    if (file_path.lower() == "reset"):
-        pdf_app_context.chunked_documents = None
-        return JSONResponse(content= {"message" : "Reset completed successfully"}, status_code=200)
+async def upload_pdf(file: UploadFile = File(...)):
+    # Check file format for basic validation
+    if not file.filename.endswith(('.pdf')):
+        raise HTTPException(status_code=400, detail="Invalid file format, please upload a .pdf file to process")
 
-    if not file_path.lower().endswith('.pdf'):
-        file_extension = list(file_path.split('.'))[-1]
-        return JSONResponse(content = {"message" : f"Oops! you're trying to upload {file_extension}, we need .pdf file to process"}, status_code=400)
-    pdf_app_context.document_loader = PdfDocumentLoader(file_path=file_path)
+    # Create the directory if it doesn't exist
+    storage_directory = "file_storage/pdf_files"
+    os.makedirs(storage_directory, exist_ok=True)
+
+    # Save the file to a temporary file for processing
+    await save_file_async(file, storage_directory)
+
+    pdf_app_context.document_loader = PdfDocumentLoader(file_path=os.path.join(storage_directory, file.filename))
     pdf_app_context.loaded_document = pdf_app_context.document_loader.load_document()
     pdf_app_context.chunked_documents = pdf_app_context.document_loader.text_splitter(documents=pdf_app_context.loaded_document)
-    return JSONResponse(content= {"message" : "File uploaded successfully"}, status_code=200)
+
+    return JSONResponse(content={"message": "File uploaded successfully"}, status_code=200)
