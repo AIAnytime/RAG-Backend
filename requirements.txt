@@ -7,3 +7,5 @@ langchain
 python-dotenv
 unstructured[all-docs]
 chromadb
+aiofiles
+python-multipart
